@@ -1,16 +1,67 @@
+# notify.py
+import requests
+import os
+
+def send_pushplus_message(token, title, content):
+    """
+    发送PushPlus消息到微信
+    
+    Args:
+        token (str): PushPlus的token
+        title (str): 消息标题
+        content (str): 消息内容
+    """
+    url = "http://www.pushplus.plus/send"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "token": token,
+        "title": title,
+        "content": content,
+        "template": "txt"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        
+        if result.get("code") == 200:
+            print(f"✅ {title} 推送成功")
+        else:
+            print(f"❌ {title} 推送失败: {result.get('msg', '未知错误')}")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ 推送请求异常: {e}")
+    except Exception as e:
+        print(f"❌ 推送过程中发生未知错误: {e}")
+
+
+# quark_signin.py
 import os 
 import re 
 import sys 
 import requests 
+from notify import send_pushplus_message
 
 cookie_list = os.getenv("COOKIE_QUARK").split('\n|&&')
 
 # 替代 notify 功能
 def send(title, message):
-    print(f"{title}: {message}")
+    """
+    发送消息，优先使用PushPlus推送至微信
+    """
+    pushplus_token = os.getenv('PUSHPLUS_TOKEN')
+    if pushplus_token:
+        send_pushplus_message(pushplus_token, title, message)
+    else:
+        print(f"⚠️ 未配置PUSHPLUS_TOKEN环境变量，仅本地输出：{title}: {message}")
 
 # 获取环境变量 
 def get_env(): 
+    """
+    获取夸克网盘COOKIE_QUARK环境变量
+    """
     # 判断 COOKIE_QUARK是否存在于环境变量 
     if "COOKIE_QUARK" in os.environ: 
         # 读取系统变量以 \n 或 && 分割变量 
@@ -23,8 +74,6 @@ def get_env():
         sys.exit(0) 
 
     return cookie_list 
-
-# 其他代码...
 
 class Quark:
     '''
@@ -63,8 +112,12 @@ class Quark:
             "sign": self.param.get('sign'),
             "vcode": self.param.get('vcode')
         }
-        response = requests.get(url=url, params=querystring).json()
-        #print(response)
+        try:
+            response = requests.get(url=url, params=querystring).json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 请求失败: {e}")
+            return False
+        
         if response.get("data"):
             return response["data"]
         else:
@@ -84,8 +137,12 @@ class Quark:
             "vcode": self.param.get('vcode')
         }
         data = {"sign_cyclic": True}
-        response = requests.post(url=url, json=data, params=querystring).json()
-        #print(response)
+        try:
+            response = requests.post(url=url, json=data, params=querystring).json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 请求失败: {e}")
+            return False, str(e)
+        
         if response.get("data"):
             return True, response["data"]["sign_daily_reward"]
         else:
@@ -100,8 +157,12 @@ class Quark:
             "moduleCode": "1f3563d38896438db994f118d4ff53cb",
             "kps": self.param.get('kps'),
         }
-        response = requests.get(url=url, params=querystring).json()
-        # print(response)
+        try:
+            response = requests.get(url=url, params=querystring).json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 请求失败: {e}")
+            return str(e)
+        
         if response.get("data"):
             return response["data"]["balance"]
         else:
@@ -117,7 +178,7 @@ class Quark:
         growth_info = self.get_growth_info()
         if growth_info:
             log += (
-                f" {'88VIP' if growth_info['88VIP'] else '普通用户'} {self.param.get('user')}\n"
+                f" {'88VIP' if growth_info['88VIP'] else '普通用户'} {self.param.get('user', '未知用户')}\n"
                 f"💾 网盘总容量：{self.convert_bytes(growth_info['total_capacity'])}，"
                 f"签到累计容量：")
             if "sign_reward" in growth_info['cap_composition']:
@@ -167,7 +228,8 @@ def main():
         log = f"🙍🏻‍♂️ 第{i + 1}个账号"
         msg += log
         # 登录
-        log = Quark(user_data).do_sign()
+        quark_instance = Quark(user_data)
+        log = quark_instance.do_sign()
         msg += log + "\n"
 
         i += 1
